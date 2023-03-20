@@ -35,6 +35,8 @@ namespace encrypto::motion {
 
 struct AlgorithmDescription;
 
+class SecureUnsignedInteger;
+
 class Share;
 using SharePointer = std::shared_ptr<Share>;
 
@@ -97,7 +99,13 @@ class ShareWrapper {
 
   ShareWrapper operator==(const ShareWrapper& other) const;
 
+  /****Modification start here****/
+
   ShareWrapper operator>(const ShareWrapper& other) const;
+
+  ShareWrapper operator/(const ShareWrapper& other) const;
+
+  /****End here****/
 
   // use this as the selection bit
   // returns this ? a : b

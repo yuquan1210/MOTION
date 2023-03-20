@@ -60,6 +60,20 @@ namespace encrypto::motion {
 
 using SharePointer = std::shared_ptr<Share>;
 
+/****Modification start here****/
+
+ShareWrapper ShareWrapper::operator/(const ShareWrapper& other) const {
+  assert(*other);
+  assert(share_);
+  SecureUnsignedInteger secure_uint_a = SecureUnsignedInteger(share_);
+  SecureUnsignedInteger secure_uint_b = SecureUnsignedInteger(other);
+  SecureUnsignedInteger secure_uint_result = secure_uint_a / secure_uint_b;
+  ShareWrapper result = secure_uint_result.Get();
+  return result;
+}
+
+/****Modification end here****/
+
 ShareWrapper ShareWrapper::operator~() const {
   assert(share_);
   if (share_->GetCircuitType() == CircuitType::kArithmetic) {
@@ -196,9 +210,14 @@ ShareWrapper ShareWrapper::operator+(const ShareWrapper& other) const {
   assert(share_->GetBitLength() == other->GetBitLength());
   if (share_->GetProtocol() != MpcProtocol::kArithmeticGmw &&
       other->GetProtocol() != MpcProtocol::kArithmeticGmw &&
-      share_->GetProtocol() != MpcProtocol::kAstra && other->GetProtocol() != MpcProtocol::kAstra) {
-    throw std::runtime_error(
-        "Arithmetic primitive operations are only supported for arithmetic GMW and Astra shares");
+      share_->GetProtocol() == other->GetProtocol()) {
+      SecureUnsignedInteger secure_uint_a = SecureUnsignedInteger(share_);
+      SecureUnsignedInteger secure_uint_b = SecureUnsignedInteger(other);
+      SecureUnsignedInteger secure_uint_result = secure_uint_a + secure_uint_b;
+      ShareWrapper result = secure_uint_result.Get();
+      return result;
+    // throw std::runtime_error(
+    //     "Arithmetic primitive operations are only supported for arithmetic GMW shares");
   }
 
   if (share_->GetBitLength() == 8u) {
@@ -221,9 +240,14 @@ ShareWrapper ShareWrapper::operator-(const ShareWrapper& other) const {
   assert(share_->GetBitLength() == other->GetBitLength());
   if (share_->GetProtocol() != MpcProtocol::kArithmeticGmw &&
       other->GetProtocol() != MpcProtocol::kArithmeticGmw &&
-      share_->GetProtocol() != MpcProtocol::kAstra && other->GetProtocol() != MpcProtocol::kAstra) {
-    throw std::runtime_error(
-        "Arithmetic primitive operations are only supported for arithmetic GMW and Astra shares");
+      share_->GetProtocol() == other->GetProtocol()) {
+      SecureUnsignedInteger secure_uint_a = SecureUnsignedInteger(share_);
+      SecureUnsignedInteger secure_uint_b = SecureUnsignedInteger(other);
+      SecureUnsignedInteger secure_uint_result = secure_uint_a - secure_uint_b;
+      ShareWrapper result = secure_uint_result.Get();
+      return result;
+    // throw std::runtime_error(
+    //     "Arithmetic primitive operations are only supported for arithmetic GMW shares");
   }
 
   if (share_->GetBitLength() == 8u) {
@@ -265,8 +289,13 @@ ShareWrapper ShareWrapper::operator*(const ShareWrapper& other) const {
     } else if (lhs_is_arith && rhs_is_bool) {
       return other * *this;
     } else {
-      throw std::runtime_error(
-          "Arithmetic primitive operations are only supported for arithmetic shares");
+      // throw std::runtime_error(
+      //     "Arithmetic primitive operations are only supported for arithmetic GMW shares");
+      SecureUnsignedInteger secure_uint_a = SecureUnsignedInteger(share_);
+      SecureUnsignedInteger secure_uint_b = SecureUnsignedInteger(other);
+      SecureUnsignedInteger secure_uint_result = secure_uint_a * secure_uint_b;
+      ShareWrapper result = secure_uint_result.Get();
+      return result;
     }
   }
 
@@ -366,7 +395,11 @@ ShareWrapper ShareWrapper::operator>(const ShareWrapper& other) const {
   assert(share_);
   if (share_->GetProtocol() != MpcProtocol::kArithmeticGmw ||
       other->GetProtocol() != MpcProtocol::kArithmeticGmw) {
-    throw std::runtime_error("GreaterThan operation is only supported for arithmetic GMW shares");
+    // throw std::runtime_error("GreaterThan operation is only supported for arithmetic GMW shares");
+    SecureUnsignedInteger secure_uint_a = SecureUnsignedInteger(share_);
+    SecureUnsignedInteger secure_uint_b = SecureUnsignedInteger(other);
+    ShareWrapper result = secure_uint_a > secure_uint_b;
+    return result;
   }
 
   if (share_->GetBitLength() == 8u) {

@@ -188,6 +188,9 @@ std::string PrintStatistics(const std::string& experiment_name,
      << execution_statistics.PrintHumanReadable()
      << "===========================================================================\n"
      << communication_statistics.PrintHumanReadable()
+     << "===========================================================================\n"
+     << communication_statistics.ToJson()
+     << "\n"
      << "===========================================================================\n";
   return ss.str();
 }

@@ -177,3 +177,6 @@ endif (MOTION_BUILD_EXE)
 if (MOTION_BUILD_DOC)
     add_subdirectory(doc)
 endif (MOTION_BUILD_DOC)
+
+add_subdirectory(src/opa_test)
+add_subdirectory(src/costco)
