@@ -178,5 +178,7 @@ if (MOTION_BUILD_DOC)
     add_subdirectory(doc)
 endif (MOTION_BUILD_DOC)
 
-add_subdirectory(src/opa_test)
-add_subdirectory(src/costco)
+# add_subdirectory(src/opa_test)
+# add_subdirectory(src/costco)
+
+add_subdirectory(src/micro_benchmarks)
