@@ -31,11 +31,12 @@
 #include <boost/program_options.hpp>
 
 #include "base/party.h"
+#include "common.h"
 #include "communication/communication_layer.h"
 #include "communication/tcp_transport.h"
 #include "statistics/analysis.h"
 #include "utility/typedefs.h"
-
+namespace mo = encrypto::motion;
 namespace program_options = boost::program_options;
 
 const std::regex kPartyArgumentRegex("([012]),([^,]+),(\\d{1,5})");
@@ -68,7 +69,7 @@ std::pair<program_options::variables_map, std::vector<bool>> ParseProgramOptions
       ("disable-logging,l","disable logging to file")
       ("print-configuration,p", program_options::bool_switch(&print)->default_value(false), "print configuration")
       ("configuration-file,f", program_options::value<std::string>(), kConfigFileMessage.data())
-      ("my-id", program_options::value<std::size_t>(), "my party id")
+      ("my-id", program_options::value<uint32_t>(), "my party id")
       ("parties", program_options::value<std::vector<std::string>>()->multitoken(), "(other party id, host, port, my role), e.g., --parties 0,127.0.0.1,23000 1,127.0.0.1,23001")
       ("protocol", program_options::value<std::string>()->default_value("a"), "MPC protocol")
       ("online-after-setup", program_options::value<bool>()->default_value(true), "compute the online phase of the gate evaluations after the setup phase for all of them is completed (true/1 or false/0)")
@@ -101,7 +102,7 @@ std::pair<program_options::variables_map, std::vector<bool>> ParseProgramOptions
 
   // print parsed parameters
   if (user_options.count("my-id")) {
-    if (print) std::cout << "My id " << user_options["my-id"].as<std::size_t>() << std::endl;
+    if (print) std::cout << "My id " << user_options["my-id"].as<uint32_t>() << std::endl;
   } else
     throw std::runtime_error("My id is not set but required");
 
@@ -127,32 +128,25 @@ std::pair<program_options::variables_map, std::vector<bool>> ParseProgramOptions
   return std::make_pair(user_options, std::vector<bool>{help, print_output});
 }
 
-encrypto::motion::PartyPointer CreateParty(const program_options::variables_map& user_options) {
+mo::PartyPointer CreateParty(const program_options::variables_map& user_options) {
   const auto parties_string{user_options["parties"].as<const std::vector<std::string>>()};
   const auto number_of_parties{parties_string.size()};
-  const auto my_id{user_options["my-id"].as<std::size_t>()};
-  if (my_id >= number_of_parties) {
-    throw std::runtime_error(fmt::format(
-        "My id needs to be in the range [0, #parties - 1], current my id is {} and #parties is {}",
-        my_id, number_of_parties));
-  }
-
-  encrypto::motion::communication::TcpPartiesConfiguration parties_configuration(number_of_parties);
-
+  const auto my_id{user_options["my-id"].as<uint32_t>()};
+  mo::communication::TcpPartiesConfiguration parties_configuration(number_of_parties);
   for (const auto& party_string : parties_string) {
-    const auto [party_id, host, port] = ParsePartyArgument(party_string);
-    if (party_id >= number_of_parties) {
+    const auto [my_id, host, port] = ParsePartyArgument(party_string);
+    if (my_id >= number_of_parties) {
       throw std::runtime_error(
           fmt::format("Party's id needs to be in the range [0, #parties - 1], current id "
                       "is {} and #parties is {}",
-                      party_id, number_of_parties));
+                      my_id, number_of_parties));
     }
-    parties_configuration.at(party_id) = std::make_pair(host, port);
+    parties_configuration.at(my_id) = std::make_pair(host, port);
   }
-  encrypto::motion::communication::TcpSetupHelper helper(my_id, parties_configuration);
-  auto communication_layer = std::make_unique<encrypto::motion::communication::CommunicationLayer>(
+  mo::communication::TcpSetupHelper helper(my_id, parties_configuration);
+  auto communication_layer = std::make_unique<mo::communication::CommunicationLayer>(
       my_id, helper.SetupConnections());
-  auto party = std::make_unique<encrypto::motion::Party>(std::move(communication_layer));
+  auto party = std::make_unique<mo::Party>(std::move(communication_layer));
   auto configuration = party->GetConfiguration();
   // disable logging if the corresponding flag was set
   const auto logging{!user_options.count("disable-logging")};
@@ -161,18 +155,33 @@ encrypto::motion::PartyPointer CreateParty(const program_options::variables_map&
   return party;
 }
 
+mo::ShareWrapper CreateShare(mo::PartyPointer& party, mo::MpcProtocol protocol, uint32_t input, uint32_t my_id) {
+  mo::ShareWrapper ret_share;
+  if(protocol == mo::MpcProtocol::kArithmeticGmw){
+    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kArithmeticGmw>(input, my_id));
+  } else if(protocol == mo::MpcProtocol::kBooleanGmw){
+    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kBooleanGmw>(mo::ToInput(input), my_id));
+  } else if(protocol == mo::MpcProtocol::kBmr){
+    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kBmr>(mo::ToInput(input), my_id));
+  } else {
+    throw std::invalid_argument("Invalid MPC protocol");
+  }
+  return ret_share;
+}
 
-mo::RunTimeStatistics EvaluateProtocol(mo::PartyPointer& party, std::string protocol, std::vector<uint32_t> party_input, int party_id) {
-  std::vector<mo::SecureUnsignedInteger> output(party_input.size());
-	std::vector<mo::ShareWrapper> p1(party_input.size());
-  std::vector<mo::ShareWrapper> p2(party_input.size());
-	for(int i = 0; i < party_input.size(); i++) {
-    p1[i] = CreateShare(party, protocol, party_input[i], party_id);
-    p2[i] = CreateShare(party, protocol, (uint32_t)0, party_id); //dummy_input to other party
+mo::RunTimeStatistics EvaluateProtocol(mo::PartyPointer& party, mo::MpcProtocol protocol, std::vector<uint32_t> my_input, uint32_t my_id) {
+  std::vector<mo::SecureUnsignedInteger> output(my_input.size());
+	std::vector<mo::ShareWrapper> my_s(my_input.size());
+  std::vector<mo::ShareWrapper> oth_s(my_input.size());
+  uint32_t oth_id = ((uint32_t)1)-my_id;
+	for(int i = 0; i < my_input.size(); i++) {
+    my_s[i] = CreateShare(party, protocol, my_input[i], 0);
+    oth_s[i] = CreateShare(party, protocol, my_input[i], 1); //dummy_input to other party
 	}
-	for(int i = 0; i < party_input.size(); i++) {
-    mo::ShareWrapper op_result = CreateOPCircuit(p1[i], p2[i], party, protocol);
-    output.push_back(op_result.Out());
+	for(int i = 0; i < my_input.size(); i++) {
+    mo::ShareWrapper op_result;
+    op_result = CreateOPCircuit(my_s[i], oth_s[i], party, protocol);
+    output[i] = op_result.Out();
 	}
   party->Run();
 	party->Finish();
@@ -185,84 +194,60 @@ mo::RunTimeStatistics EvaluateProtocol(mo::PartyPointer& party, std::string prot
 	return statistics.front();
 }
 
-mo::ShareWrapper CreateShare(mo::PartyPointer& party, std::string protocol, uint32_t input, uint32_t party_id) {
-  mo::ShareWrapper ret_share;
-  if(protocol == "a"){
-    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kArithmeticGmw>(input, party_id));
-  } else if(protocol == "b" || protocol == "default"){
-    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kBooleanGmw>(mo::ToInput(input), party_id));
-  } else if(protocol == "y"){
-    ret_share = mo::ShareWrapper(party->In<mo::MpcProtocol::kBmr>(mo::ToInput(input), party_id));
-  } else {
-    throw std::invalid_argument("Invalid MPC protocol");
-  }
-  return ret_share;
-}
-
-mo::ShareWrapper ConvertShare(mo::ShareWrapper sw, std::string protocol){
-  mo::ShareWrapper ret_share;
-  if(protocol == "b2a" || protocol == "y2a"){
-    ret_share = sw.Convert<mo::MpcProtocol::kArithmeticGmw>();
-  } else if(protocol == "a2b" || protocol == "y2b"){
-    ret_share = sw.Convert<mo::MpcProtocol::kBooleanGmw>();
-  } else if(protocol == "a2y" || protocol == "b2y"){
-    ret_share = sw.Convert<mo::MpcProtocol::kBmr>();
-  } else {
-    throw std::invalid_argument("Invalid Conversion");
-  }
-  return ret_share;
-}
-
 int main(int ac, char* av[]) {
   try {
     auto [user_options, flag] = ParseProgramOptions(ac, av);
     // if help flag is set - print allowed command line arguments and exit
     if (flag[0]) return EXIT_SUCCESS;
 
-    encrypto::motion::MpcProtocol protocol;
+    mo::MpcProtocol protocol;
     const std::string protocol_string{user_options["protocol"].as<std::string>()};
-    std::map<std::string, encrypto::motion::MpcProtocol> protocol_conversion{
-        {"a", encrypto::motion::MpcProtocol::kArithmeticGmw},
-        {"b", encrypto::motion::MpcProtocol::kBooleanGmw},
-        {"y", encrypto::motion::MpcProtocol::kBmr},
+    std::map<std::string, mo::MpcProtocol> protocol_map{
+        {"a", mo::MpcProtocol::kArithmeticGmw},
+        {"b", mo::MpcProtocol::kBooleanGmw},
+        {"y", mo::MpcProtocol::kBmr},
     };
     bool print_output = flag[1];
     std::uint32_t input_command_line;
     std::string input_file_path;
 
-    std::size_t party_id = user_options["my-id"].as<std::size_t>();
+    std::size_t my_id = user_options["my-id"].as<uint32_t>();
     std::size_t num_paral = user_options["num-paral"].as<std::size_t>();
     std::size_t num_test = user_options["num-test"].as<std::size_t>();
     std::cout << "Num of parallel operations = " << num_paral << std::endl; 
     std::uint32_t bitlen = user_options["bit-len"].as<std::uint32_t>();
 
-    std::vector<uint32_t> party_input(num_paral);
+    std::vector<uint32_t> my_input(num_paral);
 
     srand(user_options["rand-seed"].as<std::uint32_t>());
     const std::uint32_t kTruncate = bitlen;
-    for(std::size_t i = 0; i < party_input.size(); i++) {
-      party_input[i] = rand() % kTruncate;
+    std::cout << "my_input: ";
+    for(std::size_t i = 0; i < my_input.size(); i++) {
+      my_input[i] = rand() % kTruncate;
+      std::cout << my_input[i] << ", ";
     }
-    std::cout << "party_input[1]: " << party_input[1] << std::endl;
+    std::cout << std::endl;
 
-    encrypto::motion::AccumulatedRunTimeStatistics accumulated_statistics;
-    encrypto::motion::AccumulatedCommunicationStatistics accumulated_communication_statistics;
+    mo::AccumulatedRunTimeStatistics accumulated_statistics;
+    mo::AccumulatedCommunicationStatistics accumulated_communication_statistics;
 
     // establish communication channels with other parties
 
-    auto protocol_iterator = protocol_conversion.find(protocol_string);
-    if (protocol_iterator != protocol_conversion.end()) {
+    auto protocol_iterator = protocol_map.find(protocol_string);
+    if (protocol_iterator != protocol_map.end()) {
       protocol = protocol_iterator->second;
-      encrypto::motion::PartyPointer party{CreateParty(user_options)};
-      auto statistics = EvaluateProtocol(party, protocol, num_paral, party_input, (int)party_id);
-      accumulated_statistics.Add(statistics);
-      auto communication_statistics = party->GetBackend()->GetCommunicationLayer().GetTransportStatistics();
-      accumulated_communication_statistics.Add(communication_statistics);
+      for(std::size_t i = 0; i < num_test; i++) {
+        mo::PartyPointer party{CreateParty(user_options)};
+        auto statistics = EvaluateProtocol(party, protocol, my_input, my_id);
+        accumulated_statistics.Add(statistics);
+        auto communication_statistics = party->GetBackend()->GetCommunicationLayer().GetTransportStatistics();
+        accumulated_communication_statistics.Add(communication_statistics);
+      }
     } else { 
       throw std::invalid_argument("Invalid MPC protocol");
     }
 
-    std::cout << encrypto::motion::PrintStatistics(fmt::format("op_name", protocol_string),
+    std::cout << mo::PrintStatistics(fmt::format("op_name", protocol_string),
                                                    accumulated_statistics,
                                                    accumulated_communication_statistics);
 
