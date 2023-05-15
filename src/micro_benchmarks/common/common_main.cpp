@@ -185,11 +185,12 @@ mo::RunTimeStatistics EvaluateProtocol(mo::PartyPointer& party, mo::MpcProtocol 
 	}
   party->Run();
 	party->Finish();
-  std::cout << "output: " << std::endl;
-  for(mo::SecureUnsignedInteger x : output){
-      std::cout << x.As<std::uint32_t>() << ", ";
-  }
-  std::cout << std::endl;
+  // eq, gt, ... results are one-bit, cause error if output convert to 32-bit
+  // std::cout << "output: " << std::endl;
+  // for(mo::SecureUnsignedInteger x : output){
+  //     std::cout << x.As<std::uint32_t>() << ", ";
+  // }
+  // std::cout << std::endl;
 	const auto& statistics = party->GetBackend()->GetRunTimeStatistics();
 	return statistics.front();
 }
